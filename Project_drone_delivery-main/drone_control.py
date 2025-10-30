@@ -19,18 +19,7 @@ marker_heights = [10, 3]         # m, altitude thresholds
 aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
 parameters = cv2.aruco.DetectorParameters()
 
-# parameters.adaptiveThreshWinSizeMin = 3
-# parameters.adaptiveThreshWinSizeMax = 23
-# parameters.adaptiveThreshWinSizeStep = 10
-# parameters.adaptiveThreshConstant = 7
-# parameters.minMarkerPerimeterRate = 0.03
-# parameters.maxMarkerPerimeterRate = 4.0
-# parameters.polygonalApproxAccuracyRate = 0.05
-# if hasattr(cv2.aruco, 'CORNER_REFINE_SUBPIX'):
-#     parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-#     parameters.cornerRefinementWinSize = 5
-#     parameters.cornerRefinementMaxIterations = 30
-#     parameters.cornerRefinementMinAccuracy = 0.01
+
 
 horizontal_res = 1280
 vertical_res = 720
@@ -69,16 +58,16 @@ def start_camera():
                 "size": (1280, 720), 
                 "format": "RGB888"
             },
-            controls={
-                "AwbEnable": True,           # Bật cân bằng trắng tự động
-                "AwbMode": 0,               # Auto white balance mode
-                "Brightness": 0.0,          # Độ sáng trung tính
-                "Contrast": 1,            # Tăng độ tương phản nhẹ
-                "Saturation": 0.8,          # Độ bão hòa trung tính
-                "Sharpness": 2,           # Độ sắc nét trung tính
-                "ExposureTime": 20000,      # Tăng thời gian phơi sáng để cải thiện ánh sáng
-                # "AnalogueGain": 1.0         # Tăng gain nhẹ để cải thiện độ sáng
-            }
+            # controls={
+            #     "AwbEnable": True,           # Bật cân bằng trắng tự động
+            #     "AwbMode": 0,               # Auto white balance mode
+            #     "Brightness": 0.0,          # Độ sáng trung tính
+            #     "Contrast": 1,            # Tăng độ tương phản nhẹ
+            #     "Saturation": 0.8,          # Độ bão hòa trung tính
+            #     "Sharpness": 2,           # Độ sắc nét trung tính
+            #     "ExposureTime": 20000,      # Tăng thời gian phơi sáng để cải thiện ánh sáng
+            #     # "AnalogueGain": 1.0         # Tăng gain nhẹ để cải thiện độ sáng
+            # }
         )
         _picamera2.configure(config)
         _picamera2.start()
@@ -112,7 +101,7 @@ def _camera_loop():
                     with _latest_frame_lock:
                         _latest_frame_jpeg = jpeg.tobytes()
             
-            time.sleep(0.033)  # ~30fps
+            time.sleep(0.01)  # ~30fps
             
         except Exception as e:
             print("Error in camera loop:", e)
@@ -180,7 +169,11 @@ class DroneController:
         self.aruco_running = False
         # Danh sách ArUco IDs cần detect (mặc định)
         self.find_aruco = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
-    
+        #Zone parameters
+        self.zone_center_offset = [0, 0]
+        # self.zone_radius = 300
+        self.zone_width = 800
+        self.zone_height = 600
     def start_image_stream(self, topic_name=None):
         """
         Start camera for image streaming
@@ -406,10 +399,10 @@ class DroneController:
             except Exception as e:
                 print("❌ ArUco processing error:", e)
                 time.sleep(0.1)
-
+    
     def _process_frame_for_aruco(self, cv_image):
         """
-        Process a single frame for ArUco marker detection
+        Process a single frame for ArUco marker detection, only if within rectangular zone
         """
         detected_markers = {}
         
@@ -425,6 +418,20 @@ class DroneController:
         # Detect markers
         corners, ids, rejected = aruco.detectMarkers(blur, aruco_dict, parameters=parameters)
 
+        # Calculate camera center with offset
+        center_x = cv_image.shape[1] // 2 + self.zone_center_offset[0]
+        center_y = cv_image.shape[0] // 2 + self.zone_center_offset[1]
+
+        # Calculate rectangle bounds
+        left = center_x - self.zone_width // 2
+        right = center_x + self.zone_width // 2
+        top = center_y - self.zone_height // 2
+        bottom = center_y + self.zone_height // 2
+
+        # Vẽ rectangle zone cho visualization (tùy chọn, dù không stream ở đây)
+        cv2.rectangle(cv_image, (left, top), (right, bottom), (0, 0, 255), 2)  # Red rectangle
+        cv2.circle(cv_image, (center_x, center_y), 5, (0, 0, 255), -1)  # Center dot
+
         # Process detected markers
         if ids is not None:
             ids_flat = ids.flatten()
@@ -433,39 +440,48 @@ class DroneController:
                 
                 # Check if this is a marker we want to find
                 if marker_id in self.find_aruco:
-                    marker_size = 60  # cm
-                    ret = aruco.estimatePoseSingleMarkers(corners, marker_size,
-                                                        cameraMatrix=np_camera_matrix,
-                                                        distCoeffs=np_dist_coeff)
-                    rvec, tvec = ret[0][idx][0, :], ret[1][idx][0, :]
+                    # Get marker center
+                    corner = corners[idx][0]
+                    marker_center_x = int(np.mean(corner[:, 0]))
+                    marker_center_y = int(np.mean(corner[:, 1]))
+                    
+                    # Check if within rectangle zone
+                    if left <= marker_center_x <= right and top <= marker_center_y <= bottom:
+                        marker_size = 40  # cm
+                        ret = aruco.estimatePoseSingleMarkers(corners, marker_size,
+                                                            cameraMatrix=np_camera_matrix,
+                                                            distCoeffs=np_dist_coeff)
+                        rvec, tvec = ret[0][idx][0, :], ret[1][idx][0, :]
 
-                    x = float(tvec[0])
-                    y = float(tvec[1])
-                    z = float(tvec[2])
-                    
-                    marker_position = f'MARKER DETECTED - ID: {marker_id}, POS: x={x:.2f} y={y:.2f} z={z:.2f}'
-                    print(f"🎯 {marker_position}")
-                    
-                    try:
-                        # Sửa lỗi chính tả trong hàm OpenCV
-                        cv2.drawFrameAxes(cv_image, np_camera_matrix, np_dist_coeff, rvec, tvec, 0.1)
-                        aruco.drawDetectedMarkers(cv_image, corners)  # Sửa lỗi chính tả
-                    except Exception as e:
-                        print(f"⚠️ Error drawing marker: {e}")
-                    
-                    # Vẽ thông tin marker lên ảnh
-                    cv2.putText(cv_image, marker_position, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), thickness=2)
-                    
-                    # Only record if marker is within reasonable range
-                    if -50 < y < 50:  # z should be positive
+                        x = float(tvec[0])
+                        y = float(tvec[1])
+                        z = float(tvec[2])
+                        
+                        marker_position = f'MARKER DETECTED - ID: {marker_id}, POS: x={x:.2f} y={y:.2f} z={z:.2f}'
+                        print(f"🎯 {marker_position}")
+                        
                         try:
-                            if self.vehicle and self.vehicle.location.global_relative_frame:
-                                lat = self.vehicle.location.global_relative_frame.lat
-                                lon = self.vehicle.location.global_relative_frame.lon
-                                detected_markers[marker_id] = [lat, lon]
-                                print(f"📍 Recorded marker ID {marker_id} at lat={lat:.6f}, lon={lon:.6f}")
+                            cv2.drawFrameAxes(cv_image, np_camera_matrix, np_dist_coeff, rvec, tvec, 0.1)
+                            aruco.drawDetectedMarkers(cv_image, corners)
                         except Exception as e:
-                            print(f"❌ Error getting location for marker {marker_id}: {e}")
+                            print(f"⚠️ Error drawing marker: {e}")
+                        
+                        # Vẽ line từ marker center đến camera center
+                        cv2.line(cv_image, (marker_center_x, marker_center_y), (center_x, center_y), (0, 0, 255), 2)
+                        
+                        # Vẽ thông tin marker lên ảnh
+                        cv2.putText(cv_image, marker_position, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), thickness=2)
+                        
+                        # Only record if marker is within reasonable range
+                        if -50 < y < 50:  # z should be positive
+                            try:
+                                if self.vehicle and self.vehicle.location.global_relative_frame:
+                                    lat = self.vehicle.location.global_relative_frame.lat
+                                    lon = self.vehicle.location.global_relative_frame.lon
+                                    detected_markers[marker_id] = [lat, lon]
+                                    print(f"📍 Recorded marker ID {marker_id} at lat={lat:.6f}, lon={lon:.6f}")
+                            except Exception as e:
+                                print(f"❌ Error getting location for marker {marker_id}: {e}")
 
         return detected_markers
 

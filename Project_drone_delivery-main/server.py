@@ -35,6 +35,11 @@ except Exception as e:
 prev_loc = None
 distance_traveled = 0.0
 
+# Thêm variables global (hoặc trong hàm nếu muốn)
+zone_center_offset = [0, 0]  # Offset
+zone_width = 800
+zone_height = 600
+
 # Lưu trữ thông tin ArUco markers
 aruco_markers = {}
 
@@ -133,10 +138,10 @@ def mjpeg_generator():
         
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        time.sleep(0.033)
+        time.sleep(0.01)
 
 def process_aruco_on_frame(cv_image):
-    """Process ArUco marker detection on a frame and draw detection results."""
+    """Process ArUco marker detection on a frame and draw detection results, with rectangular zone."""
     try:
         global aruco_markers
         gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
@@ -146,21 +151,43 @@ def process_aruco_on_frame(cv_image):
         aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
         parameters = cv2.aruco.DetectorParameters()
         
+        # Calculate camera center with offset
+        center_x = cv_image.shape[1] // 2 + zone_center_offset[0]
+        center_y = cv_image.shape[0] // 2 + zone_center_offset[1]
+        
+        # Calculate rectangle bounds
+        left = center_x - zone_width // 2
+        right = center_x + zone_width // 2
+        top = center_y - zone_height // 2
+        bottom = center_y + zone_height // 2
+        
+        # Draw zone rectangle and center
+        cv2.rectangle(cv_image, (left, top), (right, bottom), (0, 0, 255), 2)  # Red rectangle
+        cv2.circle(cv_image, (center_x, center_y), 5, (0, 0, 255), -1)  # Center dot
         
         corners, ids, rejected = cv2.aruco.detectMarkers(blur, aruco_dict, parameters=parameters)
         
+        detected_count = 0
         if ids is not None:
-            cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
             for i, marker_id in enumerate(ids):
                 marker_id = int(marker_id[0])
                 corner = corners[i][0]
-                center_x = int(np.mean(corner[:, 0]))
-                center_y = int(np.mean(corner[:, 1]))
-                cv2.putText(cv_image, f"ID: {marker_id}", 
-                           (center_x - 90, center_y - 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 2)
+                marker_center_x = int(np.mean(corner[:, 0]))
+                marker_center_y = int(np.mean(corner[:, 1]))
+                
+                # Check if within rectangle zone
+                if left <= marker_center_x <= right and top <= marker_center_y <= bottom:
+                    cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
+                    cv2.putText(cv_image, f"ID: {marker_id}", 
+                               (marker_center_x - 90, marker_center_y - 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 2)
+                    
+                    # Draw line from marker center to camera center
+                    cv2.line(cv_image, (marker_center_x, marker_center_y), (center_x, center_y), (255, 0, 0), 2)
+                    
+                    detected_count += 1
         
-        cv2.putText(cv_image, f"ArUco Markers Detected: {len(ids) if ids is not None else 0}", 
+        cv2.putText(cv_image, f"ArUco Markers Detected: {detected_count}", 
                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (255, 0, 255), 2)
         
     except Exception as e:
