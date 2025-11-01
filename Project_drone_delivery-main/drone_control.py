@@ -168,7 +168,7 @@ class DroneController:
         self.aruco_thread = None
         self.aruco_running = False
         # Danh sách ArUco IDs cần detect (mặc định)
-        self.find_aruco = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
+        self.find_aruco = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]
         #Zone parameters
         self.zone_center_offset = [0, 0]
         # self.zone_radius = 300
