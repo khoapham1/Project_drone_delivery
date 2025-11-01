@@ -16,8 +16,8 @@ ids_to_find = [1, 2]
 # find_aruco is now dynamic, will be set via class
 marker_sizes = [60, 10]          # cm
 marker_heights = [10, 3]         # m, altitude thresholds
-aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
-parameters = cv2.aruco.DetectorParameters()
+aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_6X6_250)  # Use legacy API to avoid segfault
+parameters = cv2.aruco.DetectorParameters_create()  # Use legacy API to avoid segfault
 
 
 
